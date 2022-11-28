@@ -10,7 +10,18 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.repeatable
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,6 +29,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.forEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,16 +50,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import be.maximedupierreux.composeavance.ui.theme.ComposeAvanceTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -217,10 +237,161 @@ fun ShowAnimatable() {
     }
 }
 
-@Preview(showBackground = true)
+
 @Composable
-fun DefaultPreview() {
-    ComposeAvanceTheme {
-        AnimateAsState()
+fun Keyframes() {
+    var enabled by remember { mutableStateOf(true) }
+
+    val value by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.1f,
+        animationSpec = keyframes {
+            durationMillis = 375
+            0.0f at 0 with LinearOutSlowInEasing // for 0-15 ms
+            0.2f at 15 with FastOutLinearInEasing // for 15-75 ms
+            0.4f at 75 // ms
+            0.4f at 225 // ms
+        }
+    )
+    Column {
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .graphicsLayer(value)
+            .background(Color.Red)
+        )
+
+        Button (onClick = { enabled = !enabled }) {
+            Text(text = "Toggle")
+        }
+    }
+
+}
+
+
+@Composable
+fun ShowRepeatable() {
+    var enabled by remember { mutableStateOf(true) }
+
+    val value by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.1f,
+        animationSpec = repeatable(
+            iterations = 3,
+            animation = tween(durationMillis = 300),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    Column {
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .graphicsLayer(value)
+            .background(Color.Red)
+        )
+
+        Button (onClick = { enabled = !enabled }) {
+            Text(text = "Toggle")
+        }
     }
 }
+
+
+@Composable
+fun ShowInfiniteRepeatable() {
+    var enabled by remember { mutableStateOf(true) }
+
+    val value by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 300),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    Column {
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .graphicsLayer(value)
+            .background(Color.Red)
+        )
+
+        Button (onClick = { enabled = !enabled }) {
+            Text(text = "Toggle")
+        }
+    }
+}
+
+
+
+@Composable
+fun ShowSnap() {
+    var enabled by remember { mutableStateOf(true) }
+
+    val value by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.1f,
+        animationSpec = snap(300)
+    )
+    Column {
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .graphicsLayer(value)
+            .background(Color.Red)
+        )
+
+        Button (onClick = { enabled = !enabled }) {
+            Text(text = "Toggle")
+        }
+    }
+}
+
+fun Modifier.tiltOnTouch(
+    maxTiltDegrees: Float = DEF_MAX_TILT_DEGREES
+) = this.then(
+    composed {
+        val scope = rememberCoroutineScope()
+        val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+
+        pointerInput(Unit) {
+            forEachGesture {
+                awaitPointerEventScope {
+                    var newOffset = awaitFirstDown().position.normalize(size)
+                    scope.launch {
+                        offset.animateTo(newOffset, spring)
+                    }
+                    do {
+                        val event = awaitPointerEvent()
+                        newOffset = event.changes.last().position.normalize(size)
+                        scope.launch {
+                            offset.animateTo(newOffset, spring)
+                        }
+                    } while (event.changes.none { it.changedToUp() })
+                    scope.launch {
+                        offset.animateTo(Offset.Zero, releaseSpring)
+                    }
+                }
+            }
+        }.tilt(
+            offset = offset.value,
+            maxTiltDegrees = maxTiltDegrees
+        )
+    }
+)
+
+private val spring = spring<Offset>(stiffness = Spring.StiffnessMediumLow)
+private val releaseSpring = spring<Offset>(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = 300f)
+
+private fun Offset.normalize(size: IntSize) = Offset(
+    ((x - (size.width / 2)) / (size.width / 2)).coerceIn(-1f..1f),
+    ((y - (size.height / 2)) / (size.height / 2)).coerceIn(-1f..1f)
+)
+
+fun Modifier.tilt(
+    offset: Offset = Offset.Zero,
+    maxTiltDegrees: Float = DEF_MAX_TILT_DEGREES
+) = this.graphicsLayer(
+    rotationY = offset.x * maxTiltDegrees,
+    rotationX = -offset.y * maxTiltDegrees,
+    cameraDistance = 20f
+)
+
+const val DEF_MAX_TILT_DEGREES = 15f
